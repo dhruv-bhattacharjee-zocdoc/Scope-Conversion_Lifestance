@@ -136,9 +136,22 @@ suffix_wb = openpyxl.load_workbook(SUFFIX_FILE, data_only=True)
 suffix_ws = suffix_wb['Sheet1']
 suffix_map = {}
 for row in suffix_ws.iter_rows(min_row=2, values_only=True):
-    common, usps = row[0], row[1]
-    if common and usps:
-        suffix_map[str(common).strip().lower()] = str(usps).strip()
+    common = row[0]
+    postal_service_abbr = row[2]  # Use the third column
+    if common and postal_service_abbr:
+        camel_abbr = str(postal_service_abbr).strip().capitalize()
+        # Add mapping for original, lowercase, uppercase, and with/without period
+        base = str(common).strip()
+        variants = set([
+            base,
+            base.lower(),
+            base.upper(),
+            base.replace('.', ''),
+            base.replace('.', '').lower(),
+            base.replace('.', '').upper()
+        ])
+        for variant in variants:
+            suffix_map[variant] = camel_abbr
 
 # Helper regex for suite/unit/PO Box info
 suite_keywords = [
@@ -148,6 +161,9 @@ suite_pattern = re.compile(r"(" + r"|".join(suite_keywords) + r").*", re.IGNOREC
 
 # Define a fill for marking formatted cells
 highlight_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
+
+# Set of directions and state abbreviations to keep uppercase
+keep_upper = {'NE', 'SE', 'SW', 'NW', 'N', 'S', 'E', 'W'}
 
 # Process addresses in wb_output['Location'] before saving
 ws_location = wb_output['Location']
@@ -198,11 +214,26 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
     words = addr1_str.split()
     if words:
         last_word = words[-1].rstrip('.')
-        last_word_lower = last_word.lower()
-        if last_word_lower in suffix_map:
-            words[-1] = suffix_map[last_word_lower]
-            addr1_str = ' '.join(words)
-            formatted = True
+        # If last word is a direction or state abbreviation, keep uppercase
+        if last_word.upper() in keep_upper or (len(last_word) == 2 and last_word.isupper()):
+            words[-1] = last_word.upper()
+        else:
+            # Try matching various forms in the suffix_map
+            last_word_key = last_word
+            if last_word_key not in suffix_map:
+                last_word_key = last_word_key.lower()
+            if last_word_key not in suffix_map:
+                last_word_key = last_word_key.upper()
+            if last_word_key not in suffix_map:
+                last_word_key = last_word_key.replace('.', '')
+            if last_word_key not in suffix_map:
+                last_word_key = last_word_key.replace('.', '').lower()
+            if last_word_key not in suffix_map:
+                last_word_key = last_word_key.replace('.', '').upper()
+            if last_word_key in suffix_map:
+                words[-1] = suffix_map[last_word_key]
+                formatted = True
+        addr1_str = ' '.join(words)
     # Write cleaned Address line 1 (with smart title case)
     cell = ws_location.cell(row=i, column=addr1_idx+1, value=smart_title_case(addr1_str))
     if formatted:
