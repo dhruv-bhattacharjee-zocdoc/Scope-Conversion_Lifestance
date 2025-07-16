@@ -434,3 +434,7 @@ apply_provider_formulas(output_file, formula_specs)
 
 # Open the output file with the default application (Windows) at the very end
 os.startfile(output_file) 
+
+
+#https://github.com/dhruv-bhattacharjee-zocdoc/Scope-Conversion_Lifestance
+
