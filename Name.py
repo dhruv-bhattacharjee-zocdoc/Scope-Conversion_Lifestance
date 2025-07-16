@@ -12,6 +12,9 @@ def extract_name_gender(input_file):
     extracted_rows = []
     for row in ws_in.iter_rows(min_row=2, values_only=True):
         extracted = {col: row[input_indices[col]] if col in input_indices else None for col in ['First Name', 'Last Name', 'Gender']}
+        # Map 'Prefer not to say' to 'Not Applicable' for Gender
+        if extracted['Gender'] == 'Prefer not to say':
+            extracted['Gender'] = 'Not Applicable'
         extracted_rows.append(extracted)
     return extracted_rows
 

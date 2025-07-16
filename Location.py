@@ -7,6 +7,24 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.defined_name import DefinedName
 
+# --- Add smart_title_case helper ---
+def smart_title_case(text, keep_upper=None):
+    if not isinstance(text, str):
+        return text
+    if keep_upper is None:
+        keep_upper = {'NE', 'SE', 'SW', 'NW', 'N', 'S', 'E', 'W'}
+    # Always keep 2-letter state abbreviations uppercase
+    # (Assume state abbreviations are always 2 letters and in keep_upper)
+    def fix_word(word):
+        w = word.strip()
+        if w.upper() in keep_upper or (len(w) == 2 and w.isupper()):
+            return w.upper()
+        return w[:1].upper() + w[1:].lower() if w else w
+    # Split on space and also handle hyphens
+    def fix_token(token):
+        return '-'.join(fix_word(part) for part in token.split('-'))
+    return ' '.join(fix_token(token) for token in text.split())
+
 # Define file paths
 TEMPLATE_FILE = os.path.join(
     'Excel Files',
@@ -162,7 +180,8 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
                 new_addr2 = f"{addr2_str} {after_comma}".strip()
             else:
                 new_addr2 = after_comma
-            ws_location.cell(row=i, column=addr2_idx+1, value=new_addr2)
+            # Apply smart title case to Address line 2
+            ws_location.cell(row=i, column=addr2_idx+1, value=smart_title_case(new_addr2))
     # Move suite/unit/PO Box info to Address line 2
     match = suite_pattern.search(addr1_str)
     if match:
@@ -174,7 +193,7 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
             new_addr2 = f"{addr2_str} {suite_part}".strip()
         else:
             new_addr2 = suite_part
-        ws_location.cell(row=i, column=addr2_idx+1, value=new_addr2)
+        ws_location.cell(row=i, column=addr2_idx+1, value=smart_title_case(new_addr2))
     # Standardize street suffix (last word)
     words = addr1_str.split()
     if words:
@@ -184,10 +203,14 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
             words[-1] = suffix_map[last_word_lower]
             addr1_str = ' '.join(words)
             formatted = True
-    # Write cleaned Address line 1
-    cell = ws_location.cell(row=i, column=addr1_idx+1, value=addr1_str)
+    # Write cleaned Address line 1 (with smart title case)
+    cell = ws_location.cell(row=i, column=addr1_idx+1, value=smart_title_case(addr1_str))
     if formatted:
         cell.fill = highlight_fill
+    # Also apply smart title case to Address line 2 if not already set above
+    if not (',' in str(addr1_val) or (suite_pattern.search(str(addr1_val)))):
+        if addr2_val:
+            ws_location.cell(row=i, column=addr2_idx+1, value=smart_title_case(str(addr2_val)))
 
 print("Address fields standardized and cleaned in Location sheet.")
 
@@ -213,8 +236,15 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
     city = row[city_idx].value if row[city_idx] else ''
     state = row[state_idx].value if row[state_idx] else ''
     zipcode = row[zip_idx].value if row[zip_idx] else ''
-    combined = f"{addr1}, {city}, {state} {zipcode}".strip().replace('  ', ' ')
-    ws_location.cell(row=i, column=combined_idx+1, value=combined)
+    # Only write combined address if at least one field is non-empty
+    if any([addr1, city, state, zipcode]):
+        addr1_cased = smart_title_case(addr1)
+        city_cased = smart_title_case(city)
+        state_cased = str(state).upper() if state else ''
+        combined = f"{addr1_cased}, {city_cased}, {state_cased} {zipcode}".strip().replace('  ', ' ')
+        ws_location.cell(row=i, column=combined_idx+1, value=combined)
+    else:
+        ws_location.cell(row=i, column=combined_idx+1, value='')
 
 # Add or find the 'Show name in search?' column
 try:
@@ -392,6 +422,43 @@ dv_practice_name = DataValidation(type="list", formula1='=ValidationAndReference
 dv_practice_name_range = f"{practice_name_col_letter}2:{practice_name_col_letter}{ws_location.max_row}"
 dv_practice_name.add(dv_practice_name_range)
 ws_location.add_data_validation(dv_practice_name)
+
+# Also apply smart title case to City column
+for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max_row), start=2):
+    city_cell = row[city_idx]
+    if city_cell and city_cell.value:
+        ws_location.cell(row=i, column=city_idx+1, value=smart_title_case(str(city_cell.value)))
+
+# --- Duplicate rows for 'Both' in Location Type ---
+loc_header_row = next(ws_location.iter_rows(min_row=1, max_row=1, values_only=True), [])
+loc_header = list(loc_header_row) if loc_header_row else []
+try:
+    location_type_idx = loc_header.index('Location Type')
+except ValueError:
+    location_type_idx = None
+    raise ValueError("'Location Type' column not found in Location sheet.")
+
+rows_to_duplicate = []
+for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max_row, values_only=True), start=2):
+    if row[location_type_idx] == 'Both':
+        rows_to_duplicate.append((i, row))
+
+# To avoid index shifting, process from bottom up
+for i, row in reversed(rows_to_duplicate):
+    # Remove the original row
+    ws_location.delete_rows(i)
+    # Insert two new rows: one with 'Virtual', one with 'In Person'
+    new_row_virtual = list(row)
+    new_row_virtual[location_type_idx] = 'Virtual'
+    new_row_inperson = list(row)
+    new_row_inperson[location_type_idx] = 'In Person'
+    ws_location.insert_rows(i)
+    for col_idx, value in enumerate(new_row_inperson, start=1):
+        ws_location.cell(row=i, column=col_idx, value=value)
+    ws_location.insert_rows(i)
+    for col_idx, value in enumerate(new_row_virtual, start=1):
+        ws_location.cell(row=i, column=col_idx, value=value)
+# --- End duplication logic ---
 
 # Save the output workbook
 wb_output.save(OUTPUT_FILE)

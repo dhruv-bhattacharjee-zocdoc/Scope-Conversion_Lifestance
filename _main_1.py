@@ -383,7 +383,7 @@ dropdown_specs.append(("Enterprise Scheduling Flag", '"Yes"'))
 dropdown_specs.append(("Practice Name", "=Location!$A$8:$A$66"))
 # Location 1-5 dropdowns from Location sheet
 for i in range(1, 6):
-    dropdown_specs.append((f"Location {i}", "=Location!$X$8:$X$66"))
+    dropdown_specs.append((f"Location {i}", "=Location!$B$2:$B$236"))
 # Provider Type dropdown from ValidationAndReference sheet
 dropdown_specs.append(("Provider Type", "=ValidationAndReference!$Q$2:$Q$9"))
 
