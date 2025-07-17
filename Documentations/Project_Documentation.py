@@ -1,7 +1,13 @@
-# This is a Python script to generate the Word documentation. Please run this script to create the .docx file.
 from docx import Document
-from docx.shared import Pt
+from docx.shared import Pt, Inches, RGBColor
+from pygments import highlight
+from pygments.lexers import PythonLexer
+from pygments.formatters import ImageFormatter
+from io import BytesIO
+from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
+from pygments.token import Token
+from pygments import lex
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
 # Data for documentation
@@ -101,23 +107,191 @@ files = [
     }
 ]
 
+def code_to_image(code_text):
+    formatter = ImageFormatter(
+        font_name='Consolas',
+        line_numbers=False,
+        style='monokai',  # Modern editor-like look
+        image_format='PNG',
+        line_pad=2,
+        font_size=14      # Uniform font size
+    )
+    img_data = highlight(code_text, PythonLexer(), formatter)
+    return BytesIO(img_data)
+
+def add_code_block(doc, code_text, language_label=None):
+    # Add language label if provided
+    if language_label:
+        label_para = doc.add_paragraph(language_label)
+        label_para.style = doc.styles['Normal']
+        label_para.runs[0].font.size = Pt(8)
+        label_para.runs[0].font.italic = True
+    # Add code block with darker grey background
+    para = doc.add_paragraph()
+    # Set background shading for the paragraph
+    ppr = para._p.get_or_add_pPr()
+    shd = OxmlElement('w:shd')
+    shd.set(qn('w:fill'), 'D9D9D9')  # Darker grey
+    ppr.append(shd)
+    # Tokenize code and add runs with color
+    for token, value in lex(code_text, PythonLexer()):
+        run = para.add_run(value)
+        run.font.name = 'Consolas'
+        run.font.size = Pt(9)
+        # Set color based on token type
+        if token in Token.Keyword:
+            run.font.color.rgb = RGBColor(0, 0, 205)  # Blue
+        elif token in Token.Comment:
+            run.font.color.rgb = RGBColor(0, 128, 0)  # Green
+        elif token in Token.String:
+            run.font.color.rgb = RGBColor(163, 21, 21)  # Red
+        elif token in Token.Number:
+            run.font.color.rgb = RGBColor(128, 0, 128)  # Purple
+        else:
+            run.font.color.rgb = RGBColor(51, 51, 51)  # Default dark grey
+    para.paragraph_format.space_before = Pt(6)
+    para.paragraph_format.space_after = Pt(6)
+    para.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+
 doc = Document()
 
-doc.add_heading('Scope Conversion Lifestance – Documentation', 0)
+# Add left-aligned title with a blue horizontal line below
+title_para = doc.add_paragraph('Lifestance Scope Conversion Code Documentation')
+title_para.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+title_run = title_para.runs[0]
+title_run.font.size = Pt(18)
+title_run.font.bold = False
+title_run.font.name = 'Calibri'
+title_run.font.color.rgb = RGBColor(0x17, 0x36, 0x5d)  # #17365d
+# Add a horizontal line (bottom border)
+p = title_para._p
+pPr = p.get_or_add_pPr()
+borders = pPr.find(qn('w:pBdr'))
+if borders is None:
+    borders = OxmlElement('w:pBdr')
+    pPr.append(borders)
+bottom = OxmlElement('w:bottom')
+bottom.set(qn('w:val'), 'single')
+bottom.set(qn('w:sz'), '12')
+bottom.set(qn('w:space'), '1')
+bottom.set(qn('w:color'), '2F5496')  # Blue color
+borders.append(bottom)
 
-doc.add_heading('Workflow Overview', level=1)
+# Helper to set font for paragraphs
+from docx.shared import RGBColor
+
+def set_paragraph_font(para, size_pt, color_rgb=(0,0,0)):
+    for run in para.runs:
+        run.font.size = Pt(size_pt)
+        run.font.name = 'Calibri'
+        run.font.color.rgb = RGBColor(*color_rgb)
+
+# Project Overview
+# ----------------
+doc.add_heading('Project Overview', level=1)
+set_paragraph_font(doc.paragraphs[-1], 11, (0x17, 0x36, 0x5d))
+
+doc.add_heading('Problem Statement', level=2)
+doc.add_paragraph(
+    "The project addresses the need to efficiently transpose and standardize provider data from various Excel sources into a unified, validated format. This is essential for downstream processes such as reporting, analytics, and integration with other healthcare systems. Manual data handling is error-prone and time-consuming, necessitating an automated, robust solution."
+).alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+set_paragraph_font(doc.paragraphs[-1], 9)
+
+doc.add_heading('Achieved Solution', level=2)
+doc.add_paragraph(
+    "A modular Python-based solution was developed to automate the extraction, transformation, and validation of provider data. The system leverages multiple helper scripts to extract specific fields, applies data validation and dropdowns, and generates a ready-to-use output file. The approach ensures data integrity, reduces manual effort, and supports scalability for future requirements."
+).alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+set_paragraph_font(doc.paragraphs[-1], 9)
+
+doc.add_heading('Impact', level=2)
+doc.add_paragraph(
+    "The automated workflow has significantly improved data quality and processing speed. It minimizes human errors, ensures compliance with data standards, and provides a flexible framework for future enhancements. The output is structured for easy review and integration, supporting both operational and analytical needs."
+).alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+set_paragraph_font(doc.paragraphs[-1], 9)
+
+# System Architecture & Workflow
+# -----------------------------
+doc.add_heading('System Architecture & Workflow', level=1)
+set_paragraph_font(doc.paragraphs[-1], 11, (0x17, 0x36, 0x5d))
+
+doc.add_heading('Workflow Steps', level=2)
 for step in workflow:
-    doc.add_paragraph(step, style='List Number')
+    para = doc.add_paragraph(step, style='List Number')
+    para.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+    set_paragraph_font(para, 9)
 
-doc.add_heading('Main Python Files', level=1)
+doc.add_heading('Main Python Files', level=2)
 for file in files:
-    doc.add_heading(file['name'], level=2)
-    doc.add_paragraph('Purpose:', style='Intense Quote')
-    doc.add_paragraph(file['purpose'])
-    doc.add_paragraph('Key Code Snippet:', style='Intense Quote')
-    code = doc.add_paragraph()
-    code.add_run(file['snippet']).font.name = 'Consolas'
-    code.style = 'Code'
+    doc.add_heading(file['name'], level=3)
+    set_paragraph_font(doc.paragraphs[-1], 11, (0x17, 0x36, 0x5d))
+    para = doc.add_paragraph('Purpose:', style='Intense Quote')
+    para.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+    para = doc.add_paragraph(file['purpose'])
+    para.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+    set_paragraph_font(para, 9)
+    para = doc.add_paragraph('Key Code Snippet:', style='Intense Quote')
+    para.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+    add_code_block(doc, file['snippet'], language_label='Python')
+    explanation = f"This code snippet demonstrates how the script handles: {file['purpose']}"
+    para = doc.add_paragraph()
+    set_paragraph_font(para, 9)
+    run = para.add_run(explanation)
+    # No italics
+    para.alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
 
-doc.save('Project_Documentation.docx')
-print('Word documentation generated as Project_Documentation.docx') 
+# Examples
+# --------
+doc.add_heading('Examples', level=1)
+set_paragraph_font(doc.paragraphs[-1], 11, (0x17, 0x36, 0x5d))
+
+doc.add_heading('Example: Data Extraction', level=2)
+doc.add_paragraph(
+    "The system extracts provider names, NPIs, specialties, and other fields from the input Excel file using dedicated helper scripts. Each script is responsible for a specific data domain, ensuring modularity and ease of maintenance."
+).alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+set_paragraph_font(doc.paragraphs[-1], 9)
+
+doc.add_heading('Example: Location Sheet Generation', level=2)
+doc.add_paragraph(
+    "The Location.py script processes and standardizes address data, handling special cases such as 'Both' location types by splitting them into 'Virtual' and 'In Person'. This ensures accurate categorization and downstream usability."
+).alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+set_paragraph_font(doc.paragraphs[-1], 9)
+
+doc.add_heading('Example: Specialty Dropdowns', level=2)
+doc.add_paragraph(
+    "Specialty.py and specialtydropdown.py manage the extraction and validation of provider specialties. Dropdowns are applied to ensure only valid specialties are selectable, supporting data quality and consistency."
+).alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+set_paragraph_font(doc.paragraphs[-1], 9)
+
+# Validation & Output
+# ------------------
+doc.add_heading('Validation & Output', level=1)
+set_paragraph_font(doc.paragraphs[-1], 11, (0x17, 0x36, 0x5d))
+
+doc.add_heading('Output Structure', level=2)
+doc.add_paragraph(
+    "The output Excel file is structured to match the required template, with all necessary fields, dropdowns, and validation rules applied. Additional sheets, such as ValidationAndReference and Location, are included as needed."
+).alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+set_paragraph_font(doc.paragraphs[-1], 9)
+
+doc.add_heading('Validation Checks', level=2)
+doc.add_paragraph(
+    "The _status _check.py script validates the completeness and correctness of the output file. It groups related columns, checks for missing or inconsistent data, and ensures the final deliverable meets all requirements."
+).alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+set_paragraph_font(doc.paragraphs[-1], 9)
+
+# Conclusion
+# ----------
+doc.add_heading('Conclusion', level=1)
+set_paragraph_font(doc.paragraphs[-1], 11, (0x17, 0x36, 0x5d))
+doc.add_paragraph(
+    "This solution provides a scalable, maintainable, and robust approach to provider data transposition and validation. By automating key processes and enforcing data standards, it supports both current operational needs and future growth."
+).alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
+set_paragraph_font(doc.paragraphs[-1], 9)
+
+output_path = r'C:/Users/dhruv.bhattacharjee/Desktop/PDO Data Transposition/Scope Conversion_Lifestance/Documentations/Code Documentation.docx'
+doc.save(output_path)
+
+# Open the generated documentation automatically (Windows only)
+import os
+os.startfile(output_path)
+print('Word documentation generated as Code Documentation.docx') 
