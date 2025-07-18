@@ -25,6 +25,24 @@ def smart_title_case(text, keep_upper=None):
         return '-'.join(fix_word(part) for part in token.split('-'))
     return ' '.join(fix_token(token) for token in text.split())
 
+# --- Add smart_camel_case helper ---
+def smart_camel_case(text, state_abbr=None, keep_upper=None):
+    if not isinstance(text, str):
+        return text
+    if keep_upper is None:
+        keep_upper = {'NE', 'SE', 'SW', 'NW', 'N', 'S', 'E', 'W'}
+    if state_abbr:
+        keep_upper = set(keep_upper)
+        keep_upper.add(state_abbr.upper())
+    def fix_word(word):
+        w = word.strip()
+        if w.upper() in keep_upper:
+            return w.upper()
+        return w[:1].upper() + w[1:].lower() if w else w
+    def fix_token(token):
+        return '-'.join(fix_word(part) for part in token.split('-'))
+    return ' '.join(fix_token(token) for token in text.split())
+
 # Define file paths
 TEMPLATE_FILE = os.path.join(
     'Excel Files',
@@ -181,6 +199,12 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
     addr2_cell = row[addr2_idx]
     addr1_val = addr1_cell.value if addr1_cell else ''
     addr2_val = addr2_cell.value if addr2_cell else ''
+    # Get state value for this row
+    try:
+        state_idx = loc_header.index('State')
+        state_val = row[state_idx].value if row[state_idx] else ''
+    except Exception:
+        state_val = ''
     if not addr1_val:
         continue
     addr1_str = str(addr1_val)
@@ -196,8 +220,8 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
                 new_addr2 = f"{addr2_str} {after_comma}".strip()
             else:
                 new_addr2 = after_comma
-            # Apply smart title case to Address line 2
-            ws_location.cell(row=i, column=addr2_idx+1, value=smart_title_case(new_addr2))
+            # Apply smart camel case to Address line 2
+            ws_location.cell(row=i, column=addr2_idx+1, value=smart_camel_case(new_addr2, state_abbr=state_val))
     # Move suite/unit/PO Box info to Address line 2
     match = suite_pattern.search(addr1_str)
     if match:
@@ -209,16 +233,14 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
             new_addr2 = f"{addr2_str} {suite_part}".strip()
         else:
             new_addr2 = suite_part
-        ws_location.cell(row=i, column=addr2_idx+1, value=smart_title_case(new_addr2))
+        ws_location.cell(row=i, column=addr2_idx+1, value=smart_camel_case(new_addr2, state_abbr=state_val))
     # Standardize street suffix (last word)
     words = addr1_str.split()
     if words:
         last_word = words[-1].rstrip('.')
-        # If last word is a direction or state abbreviation, keep uppercase
         if last_word.upper() in keep_upper or (len(last_word) == 2 and last_word.isupper()):
             words[-1] = last_word.upper()
         else:
-            # Try matching various forms in the suffix_map
             last_word_key = last_word
             if last_word_key not in suffix_map:
                 last_word_key = last_word_key.lower()
@@ -231,17 +253,17 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
             if last_word_key not in suffix_map:
                 last_word_key = last_word_key.replace('.', '').upper()
             if last_word_key in suffix_map:
-                words[-1] = suffix_map[last_word_key]
+                words[-1] = suffix_map[last_word_key].capitalize()
                 formatted = True
         addr1_str = ' '.join(words)
-    # Write cleaned Address line 1 (with smart title case)
-    cell = ws_location.cell(row=i, column=addr1_idx+1, value=smart_title_case(addr1_str))
+    # Write cleaned Address line 1 (with smart camel case)
+    cell = ws_location.cell(row=i, column=addr1_idx+1, value=smart_camel_case(addr1_str, state_abbr=state_val))
     if formatted:
         cell.fill = highlight_fill
-    # Also apply smart title case to Address line 2 if not already set above
+    # Also apply smart camel case to Address line 2 if not already set above
     if not (',' in str(addr1_val) or (suite_pattern.search(str(addr1_val)))):
         if addr2_val:
-            ws_location.cell(row=i, column=addr2_idx+1, value=smart_title_case(str(addr2_val)))
+            ws_location.cell(row=i, column=addr2_idx+1, value=smart_camel_case(str(addr2_val), state_abbr=state_val))
 
 print("Address fields standardized and cleaned in Location sheet.")
 
@@ -269,8 +291,8 @@ for i, row in enumerate(ws_location.iter_rows(min_row=2, max_row=ws_location.max
     zipcode = row[zip_idx].value if row[zip_idx] else ''
     # Only write combined address if at least one field is non-empty
     if any([addr1, city, state, zipcode]):
-        addr1_cased = smart_title_case(addr1)
-        city_cased = smart_title_case(city)
+        addr1_cased = smart_camel_case(addr1, state_abbr=state)
+        city_cased = smart_camel_case(city, state_abbr=state)
         state_cased = str(state).upper() if state else ''
         combined = f"{addr1_cased}, {city_cased}, {state_cased} {zipcode}".strip().replace('  ', ' ')
         ws_location.cell(row=i, column=combined_idx+1, value=combined)

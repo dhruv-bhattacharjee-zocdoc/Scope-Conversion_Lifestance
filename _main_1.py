@@ -199,6 +199,24 @@ for col_letter, dim in location_ws.column_dimensions.items():
 for row_num, dim in location_ws.row_dimensions.items():
     ws_location.row_dimensions[row_num].height = dim.height
 
+# Autofill 'Location 1' in Provider sheet with 'Location Name' from Location sheet
+provider_ws = wb_out['Provider']
+location_ws = wb_out['Location']
+provider_header = [cell.value for cell in provider_ws[1]]
+location_header = [cell.value for cell in location_ws[1]]
+try:
+    location1_idx = provider_header.index('Location 1')
+    location_name_idx = location_header.index('Location Name')
+except ValueError:
+    location1_idx = None
+    location_name_idx = None
+
+if location1_idx is not None and location_name_idx is not None:
+    max_row = min(provider_ws.max_row, location_ws.max_row)
+    for row in range(2, max_row+1):
+        location_name = location_ws.cell(row=row, column=location_name_idx+1).value
+        provider_ws.cell(row=row, column=location1_idx+1, value=location_name)
+
 # Add dropdown for 'Practice Name' in Location sheet using values from ValidationAndReference!$AD$2:$AD$430
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils import get_column_letter
@@ -409,7 +427,7 @@ formula_specs = [
     ("Location ID 2", '=IF(ISBLANK(O{row}),"",INDEX(Location!$U:$U,MATCH(O{row},Location!$A:$A,0)))'),
     ("Location ID 3", '=IF(ISBLANK(P{row}),"",INDEX(Location!$U:$U,MATCH(P{row},Location!$A:$A,0)))'),
     ("Location ID 4", '=IF(ISBLANK(Q{row}),"",INDEX(Location!$U:$U,MATCH(Q{row},Location!$A:$A,0)))'),
-    ("Location ID 5", '=IF(ISBLANK(Z{row}),"",INDEX(ValidationAndReference!$M:$M,MATCH(Z{row},ValidationAndReference!$N:$N,0)))'),
+    ("Location ID 5", '=IF(ISBLANK(R{row}),"",INDEX(Location!$U:$U,MATCH(R{row},Location!$A:$A,0)))'),
     ("Board Cert ID 1", '=IF(ISBLANK(AA{row}),"",INDEX(ValidationAndReference!$AA:$AA,MATCH(AA{row},ValidationAndReference!$AB:$AB,0)))'),
     ("Sub Board Cert ID 1", '=IF(ISBLANK(AB{row}),"",INDEX(ValidationAndReference!$M:$M,MATCH(AB{row},ValidationAndReference!$N:$N,0)))'),
     ("Board Cert ID 2", '=IF(ISBLANK(AC{row}),"",INDEX(ValidationAndReference!$AA:$AA,MATCH(AC{row},ValidationAndReference!$AB:$AB,0)))'),
