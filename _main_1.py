@@ -14,6 +14,8 @@ from ESF import set_enterprise_scheduling_flag_dropdown
 from Langauge import extract_languages
 import subprocess
 from specialtydropdown import add_specialty_valref_dropdowns
+from Extract_NPI import create_npi_specialty_excel
+import re
 
 # Define the input, template, and output file paths
 input_file = r"Excel Files/Input.xlsx"
@@ -41,6 +43,59 @@ board_certification_list = extract_board_certification(input_file)
 board_subspecialty_list = extract_board_subspecialty(input_file)
 # Extract Languages data using Langauge.py
 lang1_list, lang2_list = extract_languages(input_file)
+# Extract Facility Address data from Input.xlsx
+import openpyxl
+# After extracting other lists
+wb_in = openpyxl.load_workbook(input_file)
+ws_in = wb_in.active
+input_header_row = [cell.value for cell in ws_in[1]]
+try:
+    facility_address_idx = input_header_row.index('Facility Address')
+except ValueError:
+    facility_address_idx = None
+facility_address_list = []
+if facility_address_idx is not None:
+    for row in ws_in.iter_rows(min_row=2, values_only=True):
+        facility_address_list.append(row[facility_address_idx])
+else:
+    facility_address_list = [None] * len(extracted_rows)
+
+# Extract Facility City, Facility Zip, Facility State from Input.xlsx
+try:
+    facility_city_idx = input_header_row.index('Facility City')
+except ValueError:
+    facility_city_idx = None
+facility_city_list = []
+if facility_city_idx is not None:
+    for row in ws_in.iter_rows(min_row=2, values_only=True):
+        facility_city_list.append(row[facility_city_idx])
+else:
+    facility_city_list = [None] * len(extracted_rows)
+
+try:
+    facility_zip_idx = input_header_row.index('Facility Zip')
+except ValueError:
+    facility_zip_idx = None
+facility_zip_list = []
+if facility_zip_idx is not None:
+    for row in ws_in.iter_rows(min_row=2, values_only=True):
+        zip_val = row[facility_zip_idx]
+        if zip_val is not None:
+            zip_val = str(zip_val)[:5]
+        facility_zip_list.append(zip_val)
+else:
+    facility_zip_list = [None] * len(extracted_rows)
+
+try:
+    facility_state_idx = input_header_row.index('Facility State')
+except ValueError:
+    facility_state_idx = None
+facility_state_list = []
+if facility_state_idx is not None:
+    for row in ws_in.iter_rows(min_row=2, values_only=True):
+        facility_state_list.append(row[facility_state_idx])
+else:
+    facility_state_list = [None] * len(extracted_rows)
 
 # Load the template workbook and Provider sheet
 wb_template = openpyxl.load_workbook(template_file)
@@ -54,14 +109,67 @@ if ws_out is None:
 else:
     ws_out.title = 'Provider'
 
+# Define the columns to always include
+extra_columns = ['Facility Address', 'Facility City', 'Facility Zip', 'Facility State', 'Address line 2']
 # Copy the template headers
 header_row = [cell.value for cell in ws_template[1]]
+for col in extra_columns:
+    if col not in header_row:
+        header_row.append(col)
 if ws_out is not None:
     ws_out.append(header_row)
+
+# Helper for smart camel case (preserve NW, SW, SE, NE)
+def smart_camel_case(text, keep_upper=None):
+    if not isinstance(text, str):
+        return text
+    if keep_upper is None:
+        keep_upper = {'NE', 'SE', 'SW', 'NW', 'N', 'S', 'E', 'W'}
+    def fix_word(word):
+        w = word.strip()
+        if w.upper() in keep_upper:
+            return w.upper()
+        return w[:1].upper() + w[1:].lower() if w else w
+    def fix_token(token):
+        return '-'.join(fix_word(part) for part in token.split('-'))
+    return ' '.join(fix_token(token) for token in text.split())
+
+# Suite/unit/PO Box regex (same as Location.py)
+suite_keywords = [
+    r"suite", r"ste", r"apt", r"apartment", r"floor", r"fl", r"unit", r"room", r"rm", r"bldg", r"#", r"p\.o\. box", r"po box"
+]
+suite_pattern = re.compile(r"(" + r"|".join(suite_keywords) + r").*", re.IGNORECASE)
+
+def split_and_clean_address(address):
+    address_line_1 = address if address else ""
+    address_line_2 = ""
+    if address_line_1:
+        addr_str = str(address_line_1)
+        # If there's a comma, move everything after the first comma to Address line 2
+        if ',' in addr_str:
+            before_comma, after_comma = addr_str.split(',', 1)
+            address_line_1 = before_comma.strip()
+            address_line_2 = after_comma.strip()
+        # Move suite/unit/PO Box info to Address line 2
+        match = suite_pattern.search(address_line_1)
+        if match:
+            suite_part = address_line_1[match.start():].strip()
+            address_line_1 = address_line_1[:match.start()].strip()
+            if address_line_2:
+                address_line_2 = f"{address_line_2} {suite_part}".strip()
+            else:
+                address_line_2 = suite_part
+        # Camel case both, preserving NW, SW, SE, NE
+        address_line_1 = smart_camel_case(address_line_1)
+        address_line_2 = smart_camel_case(address_line_2) if address_line_2 else ""
+    return address_line_1, address_line_2
 
 # For each extracted row, create a row matching the template structure
 for idx, extracted in enumerate(extracted_rows):
     new_row = []
+    # Prepare address line 1 and 2 from Facility Address using locationmapping.py
+    facility_address = facility_address_list[idx] if idx < len(facility_address_list) else ""
+    address_line_1, address_line_2 = split_and_clean_address(facility_address)
     for header in header_row:
         if header in ['First Name', 'Last Name', 'Gender']:
             value = extracted.get(header, "")
@@ -85,8 +193,8 @@ for idx, extracted in enumerate(extracted_rows):
                 value = ""
             new_row.append(value if value is not None else "")
         elif header == 'Specialty 1':
-            value = specialty_list[idx] if idx < len(specialty_list) else ""
-            new_row.append(value if value is not None else "")
+            value = ""
+            new_row.append(value)
         elif header == 'Patients Accepted':
             value = patients_accepted_list[idx] if idx < len(patients_accepted_list) else ""
             new_row.append(value if value is not None else "")
@@ -96,17 +204,32 @@ for idx, extracted in enumerate(extracted_rows):
         elif header == 'Professional Statement':
             value = professional_statement_list[idx] if idx < len(professional_statement_list) else ""
             new_row.append(value if value is not None else "")
-        elif header == 'Board Certification 1':
-            value = board_certification_list[idx] if idx < len(board_certification_list) else ""
-            new_row.append(value if value is not None else "")
-        elif header == 'Sub Board Certification 1':
-            value = board_subspecialty_list[idx] if idx < len(board_subspecialty_list) else ""
-            new_row.append(value if value is not None else "")
+        elif header.startswith('Board Certification') and header.split()[-1] in {'1','2','3','4','5'}:
+            value = ""
+            new_row.append(value)
+        elif header.startswith('Sub Board Certification') and header.split()[-1] in {'1','2','3','4','5'}:
+            value = ""
+            new_row.append(value)
         elif header == 'Additional Languages Spoken 1':
             value = lang1_list[idx] if idx < len(lang1_list) else ""
             new_row.append(value if value is not None else "")
         elif header == 'Additional Languages Spoken 2':
             value = lang2_list[idx] if idx < len(lang2_list) else ""
+            new_row.append(value if value is not None else "")
+        elif header == 'Facility Address':
+            new_row.append(address_line_1 if address_line_1 is not None else "")
+        elif header == 'Address line 2':
+            new_row.append(address_line_2 if address_line_2 is not None else "")
+        elif header == 'Facility City':
+            value = facility_city_list[idx] if idx < len(facility_city_list) else ""
+            if value:
+                value = str(value).title()
+            new_row.append(value if value is not None else "")
+        elif header == 'Facility Zip':
+            value = facility_zip_list[idx] if idx < len(facility_zip_list) else ""
+            new_row.append(value if value is not None else "")
+        elif header == 'Facility State':
+            value = facility_state_list[idx] if idx < len(facility_state_list) else ""
             new_row.append(value if value is not None else "")
         else:
             new_row.append("")
@@ -414,10 +537,7 @@ apply_provider_dropdowns(output_file, dropdown_specs)
 # Apply formulas to specified columns
 formula_specs = [
     ("Opt Out of Ratings", '=IFERROR(INDEX(ValidationAndReference!P:P,MATCH(BD{row},ValidationAndReference!Q:Q,0)),"")'),
-    ("Provider Type (Substatus) ID", '=IF(ISBLANK(D{row}),"",INDEX(ValidationAndReference!F:F,MATCH(D{row},ValidationAndReference!G:G,0)))'),
-    ("Professional Suffix ID 1", '=IF(ISBLANK(E{row}),"",INDEX(ValidationAndReference!$F:$F,MATCH(E{row},ValidationAndReference!$G:$G,0)))'),
-    ("Professional Suffix ID 2", '=IF(ISBLANK(E{row}),"",INDEX(ValidationAndReference!$F:$F,MATCH(F{row},ValidationAndReference!$G:$G,0)))'),
-    ("Professional Suffix ID 3", '=IF(ISBLANK(E{row}),"",INDEX(ValidationAndReference!$F:$F,MATCH(G{row},ValidationAndReference!$G:$G,0)))'),
+    # Removed formula for 'Provider Type (Substatus) ID'
     ("Specialty ID 1", '=IF(ISBLANK(H{row}),"",INDEX(ValidationAndReference!J:J,MATCH(H{row},ValidationAndReference!K:K,0)))'),
     ("Specialty ID 2", '=IF(ISBLANK(H{row}),"",INDEX(ValidationAndReference!J:J,MATCH(I{row},ValidationAndReference!K:K,0)))'),
     ("Specialty ID 3", '=IF(ISBLANK(H{row}),"",INDEX(ValidationAndReference!J:J,MATCH(J{row},ValidationAndReference!K:K,0)))'),
@@ -446,13 +566,17 @@ formula_specs = [
     ("Language ID 1", '=IF(ISBLANK(AZ{row}),"",INDEX(ValidationAndReference!$V:$V,MATCH(AZ{row},ValidationAndReference!$W:$W,0)))'),
     ("Language ID 2", '=IF(ISBLANK(BA{row}),"",INDEX(ValidationAndReference!$V:$V,MATCH(BA{row},ValidationAndReference!$W:$W,0)))'),
     ("Language ID 3", '=IF(ISBLANK(BB{row}),"",INDEX(ValidationAndReference!$V:$V,MATCH(BB{row},ValidationAndReference!$W:$W,0)))'),
+    ("Professional Suffix ID 1", '=IF(ISBLANK(D{row}),"",INDEX(ValidationAndReference!$F:$F,MATCH(D{row},ValidationAndReference!$G:$G,0)))'),
+    ("Professional Suffix ID 2", '=IF(ISBLANK(E{row}),"",INDEX(ValidationAndReference!$F:$F,MATCH(E{row},ValidationAndReference!$G:$G,0)))'),
+    ("Professional Suffix ID 3", '=IF(ISBLANK(F{row}),"",INDEX(ValidationAndReference!$F:$F,MATCH(F{row},ValidationAndReference!$G:$G,0)))'),
 ]
 
 apply_provider_formulas(output_file, formula_specs)
 
-# Open the output file with the default application (Windows) at the very end
-os.startfile(output_file) 
-
+create_npi_specialty_excel(
+    r'C:\Users\dhruv.bhattacharjee\Desktop\PDO Data Transposition\Scope Conversion_Lifestance\Excel Files\Input.xlsx',
+    r'C:\Users\dhruv.bhattacharjee\Desktop\PDO Data Transposition\Scope Conversion_Lifestance\Excel Files\Npi-specialty.xlsx'
+)
 
 #https://github.com/dhruv-bhattacharjee-zocdoc/Scope-Conversion_Lifestance
 

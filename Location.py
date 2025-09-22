@@ -33,7 +33,7 @@ def smart_camel_case(text, state_abbr=None, keep_upper=None):
         keep_upper = {'NE', 'SE', 'SW', 'NW', 'N', 'S', 'E', 'W'}
     if state_abbr:
         keep_upper = set(keep_upper)
-        keep_upper.add(state_abbr.upper())
+        keep_upper.add(str(state_abbr).upper())
     def fix_word(word):
         w = word.strip()
         if w.upper() in keep_upper:

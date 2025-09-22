@@ -4,6 +4,7 @@ from openpyxl.utils import get_column_letter
 import os
 import re
 from difflib import get_close_matches
+from openpyxl.styles import PatternFill
 
 def normalize_suffix(s):
     # Remove punctuation, spaces, lowercase everything
@@ -53,10 +54,14 @@ def extract_professional_suffix(input_file, template_file='Excel Files/New Busin
     return suffix_lists
 
 
-def add_professional_suffix_dropdowns(output_file):
+def add_professional_suffix_dropdowns(output_file, template_file='Excel Files/New Business Scope Sheet - Practice Locations and Providers.xlsx'):
     wb = openpyxl.load_workbook(output_file)
     ws = wb['Provider']
     header_row = [cell.value for cell in ws[1]]
+    # Load dropdown suffixes for validation
+    dropdown_suffixes = get_dropdown_suffixes(template_file)
+    norm_dropdown = {normalize_suffix(s): s for s in dropdown_suffixes}
+    red_fill = PatternFill(fill_type='solid', fgColor='FFFFC7CE')
     for col_name in [f'Professional Suffix {i}' for i in range(1, 4)]:
         try:
             col_idx = header_row.index(col_name) + 1  # 1-based index for openpyxl
@@ -68,6 +73,21 @@ def add_professional_suffix_dropdowns(output_file):
         dv_range = f"{col_letter}2:{col_letter}{max_row}"
         dv.add(dv_range)
         ws.add_data_validation(dv)
+        # Highlight non-matching cells in red
+        for row in range(2, max_row + 1):
+            cell = ws.cell(row=row, column=col_idx)
+            val = cell.value
+            norm_val = normalize_suffix(val) if val else ''
+            if col_name == 'Professional Suffix 1':
+                if not val or norm_val not in norm_dropdown:
+                    cell.fill = red_fill
+                else:
+                    cell.fill = PatternFill(fill_type=None)
+            else:
+                if val and norm_val not in norm_dropdown:
+                    cell.fill = red_fill
+                else:
+                    cell.fill = PatternFill(fill_type=None)
     wb.save(output_file)
 
 if __name__ == "__main__":

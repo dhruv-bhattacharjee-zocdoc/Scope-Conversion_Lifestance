@@ -49,8 +49,8 @@ if __name__ == "__main__":
     # Example usage with all specified columns
     output_file = "Excel Files/Output.xlsx"
     dropdown_specs = []
-    # Specialty 1-5
-    for i in range(1, 6):
+    # Specialty 2-5
+    for i in range(2, 6):
         dropdown_specs.append((f"Specialty {i}", "=ValidationAndReference!$K$2:$K$311"))
     # Sub Board Certification 1-5
     for i in range(1, 6):

@@ -7,7 +7,7 @@ def add_specialty_valref_dropdowns(output_file):
     wb = openpyxl.load_workbook(output_file)
     ws = wb['Provider']
     header_row = [cell.value for cell in ws[1]]
-    for col_name in [f'Specialty {i}' for i in range(1, 6)]:
+    for col_name in [f'Specialty {i}' for i in range(2, 6)]:
         try:
             col_idx = header_row.index(col_name) + 1  # 1-based index for openpyxl
         except ValueError:
