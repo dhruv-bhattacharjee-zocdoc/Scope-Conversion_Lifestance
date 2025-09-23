@@ -27,6 +27,12 @@ merged_file_path = os.path.abspath(dst)
 loc_df = pd.read_excel(merged_file_path, sheet_name='Location')
 prac_df = pd.read_excel(practice_location_path)
 
+# Ensure ZIP Code columns are always 5-character strings with leading zeros
+if 'ZIP Code' in loc_df.columns:
+    loc_df['ZIP Code'] = loc_df['ZIP Code'].astype(str).str.zfill(5)
+if 'zip' in prac_df.columns:
+    prac_df['zip'] = prac_df['zip'].astype(str).str.zfill(5)
+
 # Define matching columns
 loc_match_cols = ['Address line 1', 'Address line 2 (Office/Suite #)', 'Location Type', 'City', 'State', 'ZIP Code']
 prac_match_cols = ['address_1', 'address_2', 'Location Type', 'city', 'state', 'zip']
@@ -184,7 +190,7 @@ for row in range(2, ws.max_row + 1):
 try:
     specialty1_col = header.index("Specialty 1") + 1
     for row in range(2, ws.max_row + 1):
-        formula = f'=IFERROR(INDEX(ValidationAndReference!K:K, MATCH(BM{row}, ValidationAndReference!J:J, 0)), "")'
+        formula = f'=IFERROR(VLOOKUP(BM{row}, ValidationAndReference!J:K, 2, FALSE), "")'
         ws.cell(row=row, column=specialty1_col, value=formula)
 except ValueError:
     print("'Specialty 1' column not found, skipping formula step.")
@@ -204,8 +210,8 @@ try:
     location1_col = header.index("Location 1") + 1
     location2_col = header.index("Location 2") + 1
     for row in range(2, ws.max_row + 1):
-        formula1 = f'=XLOOKUP(BR{row}, Location!W:W, Location!X:X, "")'
-        formula2 = f'=XLOOKUP(BS{row}, Location!W:W, Location!X:X, "")'
+        formula1 = f'=IFERROR(INDEX(Location!X:X, MATCH(BR{row}, Location!W:W, 0)), "")'
+        formula2 = f'=IFERROR(INDEX(Location!X:X, MATCH(BS{row}, Location!W:W, 0)), "")'
         ws.cell(row=row, column=location1_col, value=formula1)
         ws.cell(row=row, column=location2_col, value=formula2)
     # Add dropdown validation for both columns
@@ -397,7 +403,7 @@ except ValueError:
 try:
     substatus_col = header.index('Provider Type (Substatus) ID') + 1
     for row in range(2, ws.max_row + 1):
-        formula = f'=XLOOKUP(BE{row}, ValidationAndReference!Q:Q, ValidationAndReference!P:P, "")'
+        formula = f'=IFERROR(INDEX(ValidationAndReference!P:P, MATCH(BE{row}, ValidationAndReference!Q:Q, 0)), "")'
         ws.cell(row=row, column=substatus_col, value=formula)
     wb.save(merged_file_path)
     print("Added formula for 'Provider Type (Substatus) ID' column in Provider sheet.")
@@ -448,7 +454,7 @@ except ValueError:
     print("One or more 'Language ID' columns not found, skipping formula step.")
 
 # Step 5: Open Mergedoutput.xlsx automatically (Windows only)
-os.startfile(merged_file_path)
+# os.startfile(merged_file_path) # This line is moved to after suffix_check.py
 
 # Add dropdown validations to Location sheet
 try:
@@ -501,5 +507,43 @@ try:
     print("Added dropdown validations to Location sheet.")
 except Exception as e:
     print(f"Error adding dropdown validations to Location sheet: {e}")
+
+# Now run suffix_check.py as the very last step
+print("Running suffix_check.py to highlight invalid professional suffixes...")
+subprocess.run(["python", "suffix_check.py"], check=True)
+print("Finished highlighting invalid professional suffixes in Provider sheet.")
+
+# --- Manual edit: Ensure all ZIP Codes in Location sheet are 5 digits (pad 4-digit with leading zero) ---
+wb_loc = openpyxl.load_workbook(merged_file_path)
+ws_loc = wb_loc["Location"]
+header_row = [cell.value for cell in ws_loc[1]]
+try:
+    zip_col_idx = header_row.index('ZIP Code') + 1  # 1-based
+    for row in range(2, ws_loc.max_row + 1):
+        cell = ws_loc.cell(row=row, column=zip_col_idx)
+        val = str(cell.value).strip() if cell.value is not None else ''
+        if val.isdigit() and len(val) == 4:
+            cell.value = f'0{val}'
+    wb_loc.save(merged_file_path)
+    print("Corrected 4-digit ZIP Codes in Location sheet to 5 digits.")
+except ValueError:
+    print("'ZIP Code' column not found in Location sheet, skipping ZIP correction.")
+
+# --- Delete specified columns from Provider sheet ---
+wb = openpyxl.load_workbook(merged_file_path)
+ws = wb['Provider']
+header = [cell.value for cell in ws[1]]
+columns_to_delete = [
+    'Facility Address', 'Facility City', 'Facility Zip', 'Facility State', 'Address line 2', 'Matched'
+]
+# Find column indices (1-based, right to left to avoid shifting)
+col_indices = [header.index(col) + 1 for col in columns_to_delete if col in header]
+for col_idx in sorted(col_indices, reverse=True):
+    ws.delete_cols(col_idx)
+wb.save(merged_file_path)
+print("Deleted specified columns from Provider sheet in Mergedoutput.xlsx.")
+
+# Now open the file in Excel (Windows only)
+os.startfile(merged_file_path)
 
 
