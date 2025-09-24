@@ -190,7 +190,7 @@ for row in range(2, ws.max_row + 1):
 try:
     specialty1_col = header.index("Specialty 1") + 1
     for row in range(2, ws.max_row + 1):
-        formula = f'=IFERROR(VLOOKUP(BM{row}, ValidationAndReference!J:K, 2, FALSE), "")'
+        formula = f'=IFERROR(VLOOKUP(BM{row}, ValidationAndReference!$J:$K, 2, FALSE), "")'
         ws.cell(row=row, column=specialty1_col, value=formula)
 except ValueError:
     print("'Specialty 1' column not found, skipping formula step.")
