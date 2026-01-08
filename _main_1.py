@@ -16,11 +16,64 @@ import subprocess
 from specialtydropdown import add_specialty_valref_dropdowns
 from Extract_NPI import create_npi_specialty_excel
 import re
+import sys
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
+input_file_arg = None
+if len(sys.argv) > 1:
+    input_file_arg = sys.argv[1]
+
+# If a file is provided as an argument (from UI), use it and copy to the standard location.
+if input_file_arg is not None:
+    file_path = input_file_arg
+    dest_path = os.path.join(os.path.dirname(__file__), "Excel Files", "Input.xlsx")
+    import shutil
+    shutil.copy2(file_path, dest_path)
+    print(f"Selected file '{os.path.basename(file_path)}' copied as 'Excel Files/Input.xlsx'.")
+
+# Only prompt the user if NOT running under UI/no argument provided (e.g., command-line only).
+elif sys.stdin.isatty():
+    try:
+        import tkinter as tk
+        from tkinter import filedialog, messagebox
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+        root.update()
+        file_path = filedialog.askopenfilename(
+            title="Select input Excel file",
+            filetypes=[("Excel files", "*.xlsx *.xls")]
+        )
+        root.destroy()
+        if not file_path:
+            raise SystemExit("No file selected. Exiting.")
+        dest_path = os.path.join(os.path.dirname(__file__), "Excel Files", "Input.xlsx")
+        import shutil
+        shutil.copy2(file_path, dest_path)
+        print(f"Selected file '{os.path.basename(file_path)}' copied as 'Excel Files/Input.xlsx'.")
+    except Exception as e:
+        print(f"Error selecting or copying file: {e}")
+        raise SystemExit(1)
 
 # Define the input, template, and output file paths
-input_file = r"Excel Files/Input.xlsx"
-template_file = r"C:\Users\dhruv.bhattacharjee\Desktop\PDO Data Transposition\Scope Conversion_Lifestance\Excel Files\New Business Scope Sheet - Practice Locations and Providers.xlsx"
-output_file = r"C:\Users\dhruv.bhattacharjee\Desktop\PDO Data Transposition\Scope Conversion_Lifestance\Excel Files\Output.xlsx"
+# Use a file selection dialog to choose the input file
+# Option 1: Read input_file from stdin, fallback to default if empty.
+input_default = r"Excel Files/Input.xlsx"
+if not sys.stdin.isatty():
+    entered = sys.stdin.readline().strip()
+    input_file = entered if entered else input_default
+else:
+    input_file = input_default
+
+# New, using robust relative paths:
+def resource_path(relative):
+    import os
+    base = os.path.dirname(__file__)
+    return os.path.join(base, relative)
+
+template_file = resource_path(r"Excel Files/New Business Scope Sheet - Practice Locations and Providers.xlsx")
+output_file = resource_path(r"Excel Files/Output.xlsx")
 
 # Extract name and gender data using Name.py
 extracted_rows = extract_name_gender(input_file)
@@ -574,9 +627,14 @@ formula_specs = [
 apply_provider_formulas(output_file, formula_specs)
 
 create_npi_specialty_excel(
-    r'C:\Users\dhruv.bhattacharjee\Desktop\PDO Data Transposition\Scope Conversion_Lifestance\Excel Files\Input.xlsx',
-    r'C:\Users\dhruv.bhattacharjee\Desktop\PDO Data Transposition\Scope Conversion_Lifestance\Excel Files\Npi-specialty.xlsx'
+    resource_path("Excel Files/Input.xlsx"),
+    resource_path("Excel Files/Npi-specialty.xlsx")
 )
 
-#https://github.com/dhruv-bhattacharjee-zocdoc/Scope-Conversion_Lifestance
+
+
+# Automatically run API_Datamerge.py at the end
+import subprocess
+subprocess.run(['python', 'API_Datamerge.py'], check=True) 
+
 

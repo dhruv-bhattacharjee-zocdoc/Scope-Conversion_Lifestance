@@ -180,22 +180,22 @@ if 'Location Cloud ID' in location_df.columns:
     wb.save(merged_file)
 
     # --- Re-apply yellow fill to entire row where 'Location Cloud ID' is blank/NaN ---
-    from openpyxl.styles import PatternFill
-    yellow_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
-    # Find the 'Location Cloud ID' column index
-    header = [cell.value for cell in ws[1]]
-    try:
-        loc_cloud_id_col_idx = header.index('Location Cloud ID') + 1  # 1-based
-    except ValueError:
-        loc_cloud_id_col_idx = None
-    if loc_cloud_id_col_idx:
-        for row in range(2, ws.max_row + 1):
-            cell = ws.cell(row=row, column=loc_cloud_id_col_idx)
-            if cell.value is None or str(cell.value).strip() == '':
-                # Highlight the entire row
-                for col in range(1, ws.max_column + 1):
-                    ws.cell(row=row, column=col).fill = yellow_fill
-    wb.save(merged_file)
+    #from openpyxl.styles import PatternFill
+    #yellow_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
+    ## Find the 'Location Cloud ID' column index
+    #header = [cell.value for cell in ws[1]]
+    #try:
+    #    loc_cloud_id_col_idx = header.index('Location Cloud ID') + 1  # 1-based
+    #except ValueError:
+    #    loc_cloud_id_col_idx = None
+    #if loc_cloud_id_col_idx:
+    #    for row in range(2, ws.max_row + 1):
+    #        cell = ws.cell(row=row, column=loc_cloud_id_col_idx)
+    #        if cell.value is None or str(cell.value).strip() == '':
+    #            # Highlight the entire row
+    #            for col in range(1, ws.max_column + 1):
+    #                ws.cell(row=row, column=col).fill = yellow_fill
+    #wb.save(merged_file)
 
 # Ensure columns exist
 required_provider_cols = ['Facility Address', 'Facility City', 'Facility Zip', 'Facility State', 'Address line 2']
@@ -371,54 +371,10 @@ provider_df['Matched'] = matched_results
 provider_df['Location ID 1'] = location_id_1_results
 provider_df['Location ID 2'] = location_id_2_results
 
-# Fill 'Location 1' and 'Location 2' columns based on 'Location ID 1' and 'Location ID 2'
-location_1_results = []
-location_2_results = []
-for idx, row in provider_df.iterrows():
-    loc_id_1 = row['Location ID 1']
-    loc_id_2 = row['Location ID 2']
-    loc_1 = ''
-    loc_2 = ''
-    if loc_id_1:
-        match_row = location_df[location_df['Location Cloud ID'] == loc_id_1]
-        if not match_row.empty and 'Complete Location' in match_row.columns:
-            loc_1 = match_row.iloc[0]['Complete Location']
-    if loc_id_2:
-        match_row = location_df[location_df['Location Cloud ID'] == loc_id_2]
-        if not match_row.empty and 'Complete Location' in match_row.columns:
-            loc_2 = match_row.iloc[0]['Complete Location']
-    location_1_results.append(loc_1)
-    location_2_results.append(loc_2)
-provider_df['Location 1'] = location_1_results
-provider_df['Location 2'] = location_2_results
-
-# Post-process: If 'Location ID 1' is empty but 'Location ID 2' is not, move 'Location ID 2' to 'Location ID 1' and clear 'Location ID 2'
-for idx, row in provider_df.iterrows():
-    if (not row['Location ID 1']) and row['Location ID 2']:
-        provider_df.at[idx, 'Location ID 1'] = row['Location ID 2']
-        provider_df.at[idx, 'Location ID 2'] = ''
-
-# Overwrite the Provider sheet in the original file
+# Only final Provider saving logic remains for whoever edits provider_df
 with pd.ExcelWriter(merged_file, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
     provider_df.to_excel(writer, sheet_name='Provider', index=False)
 
-# Highlight empty 'Location ID 1' cells in yellow
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
-wb = load_workbook(merged_file)
-ws = wb['Provider']
-header = [cell.value for cell in ws[1]]
-try:
-    loc_id_1_col_idx = header.index('Location ID 1') + 1  # 1-based
-except ValueError:
-    loc_id_1_col_idx = None
-if loc_id_1_col_idx:
-    yellow_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
-    for row in range(2, ws.max_row + 1):
-        cell = ws.cell(row=row, column=loc_id_1_col_idx)
-        if cell.value is None or str(cell.value).strip() == '':
-            cell.fill = yellow_fill
-wb.save(merged_file)
 
 # Utility functions (split_and_clean_address, etc.) remain at top level
 
@@ -477,22 +433,22 @@ def main():
     wb.save(output_file)
 
     # --- Re-apply yellow fill to entire row where 'Location Cloud ID' is blank/NaN ---
-    from openpyxl.styles import PatternFill
-    yellow_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
-    # Find the 'Location Cloud ID' column index
-    header = [cell.value for cell in ws[1]]
-    try:
-        loc_cloud_id_col_idx = header.index('Location Cloud ID') + 1  # 1-based
-    except ValueError:
-        loc_cloud_id_col_idx = None
-    if loc_cloud_id_col_idx:
-        for row in range(2, ws.max_row + 1):
-            cell = ws.cell(row=row, column=loc_cloud_id_col_idx)
-            if cell.value is None or str(cell.value).strip() == '':
-                # Highlight the entire row
-                for col in range(1, ws.max_column + 1):
-                    ws.cell(row=row, column=col).fill = yellow_fill
-    wb.save(output_file)
+    #from openpyxl.styles import PatternFill
+    #yellow_fill = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
+    ## Find the 'Location Cloud ID' column index
+    #header = [cell.value for cell in ws[1]]
+    #try:
+    #    loc_cloud_id_col_idx = header.index('Location Cloud ID') + 1  # 1-based
+    #except ValueError:
+    #    loc_cloud_id_col_idx = None
+    #if loc_cloud_id_col_idx:
+    #    for row in range(2, ws.max_row + 1):
+    #        cell = ws.cell(row=row, column=loc_cloud_id_col_idx)
+    #        if cell.value is None or str(cell.value).strip() == '':
+    #            # Highlight the entire row
+    #            for col in range(1, ws.max_column + 1):
+    #                ws.cell(row=row, column=col).fill = yellow_fill
+    #wb.save(output_file)
 
     required_provider_cols = ['Facility Address', 'Facility City', 'Facility Zip', 'Facility State', 'Address line 2']
     required_location_cols = ['Address line 1', 'City', 'ZIP Code', 'State', 'Address line 2 (Office/Suite #)']

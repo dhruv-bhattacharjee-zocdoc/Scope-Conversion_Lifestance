@@ -4,6 +4,12 @@ import os
 import openpyxl
 import pandas as pd
 from openpyxl.styles import PatternFill
+from rapidfuzz import process, fuzz
+import re
+import sys
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 # Step 1: Copy Output.xlsx to Mergedoutput.xlsx
 src = r"Excel Files/Output.xlsx"
@@ -50,37 +56,75 @@ for col in [
     if col in loc_df.columns:
         loc_df[col] = loc_df[col].astype(str)
 
-# For each row in loc_df, find a matching row in prac_df (flexible matching for address_2)
+def try_fuzzy_with_address2(sub_prac_df, loc_row, addr2_col, loc_addr2):
+    choices = sub_prac_df['address_1'].tolist()
+    best = process.extractOne(loc_row['Address line 1'], choices, scorer=fuzz.token_sort_ratio)
+    if best and best[1] > 90:
+        best_row = sub_prac_df[sub_prac_df['address_1'] == best[0]].iloc[0]
+        return best_row
+    partial_candidates = process.extract(loc_row['Address line 1'], choices, scorer=fuzz.token_sort_ratio, score_cutoff=70)
+    for cand_addr1, score, idx_in_sub in partial_candidates:
+        candidate = sub_prac_df.iloc[idx_in_sub]
+        candidate_addr2 = candidate[addr2_col]
+        if pd.isna(loc_addr2) and pd.isna(candidate_addr2):
+            return candidate
+        candidate_addr2 = str(candidate_addr2) if not pd.isna(candidate_addr2) else ""
+        loc_addr2_str = str(loc_addr2) if not pd.isna(loc_addr2) else ""
+        if candidate_addr2.strip() == loc_addr2_str.strip():
+            return candidate
+        if (candidate_addr2.strip() != "" and loc_addr2_str.strip() != ""):
+            fuzz_score = fuzz.token_sort_ratio(candidate_addr2, loc_addr2_str)
+            if fuzz_score > 90:
+                return candidate
+    return None
+
 for idx, loc_row in loc_df.iterrows():
     addr2 = loc_row['Address line 2 (Office/Suite #)']
+    best_row = None
     if not addr2 or str(addr2).strip() == '':
-        # Match on 5 fields, ignore address_2
-        match = prac_df[
-            (prac_df['address_1'] == loc_row['Address line 1']) &
+        # Only allow matches in prac_df where address_2 is also blank
+        sub_prac_df = prac_df[
             (prac_df['Location Type'] == loc_row['Location Type']) &
             (prac_df['city'] == loc_row['City']) &
             (prac_df['state'] == loc_row['State']) &
-            (prac_df['zip'] == loc_row['ZIP Code'])
+            (prac_df['zip'] == loc_row['ZIP Code']) &
+            ((prac_df['address_2'].isnull()) | (prac_df['address_2'].astype(str).str.strip() == ''))
         ]
+        match = sub_prac_df[
+            (sub_prac_df['address_1'] == loc_row['Address line 1'])
+        ]
+        if not match.empty:
+            best_row = match.iloc[0]
+        else:
+            best_row = try_fuzzy_with_address2(sub_prac_df, loc_row, 'address_2', loc_row['Address line 2 (Office/Suite #)'])
     else:
-        # Match on all 6 fields
-        match = prac_df[
-            (prac_df['address_1'] == loc_row['Address line 1']) &
+        sub_prac_df = prac_df[
             (prac_df['address_2'] == addr2) &
             (prac_df['Location Type'] == loc_row['Location Type']) &
             (prac_df['city'] == loc_row['City']) &
             (prac_df['state'] == loc_row['State']) &
             (prac_df['zip'] == loc_row['ZIP Code'])
         ]
-    if not match.empty:
-        match_row = match.iloc[0]
-        loc_df.at[idx, 'Practice Cloud ID'] = str(match_row.get('Practice Cloud ID', ''))
-        loc_df.at[idx, 'Location Cloud ID'] = str(match_row.get('location_id', ''))
-        loc_df.at[idx, 'Scheduling Software'] = str(match_row.get('software', ''))
-        loc_df.at[idx, 'Scheduling Software ID'] = str(match_row.get('software_id', ''))
-        loc_df.at[idx, 'Phone'] = str(match_row.get('phone', ''))
-        loc_df.at[idx, 'Virtual Visit Type'] = str(match_row.get('virtual_visit_type', ''))
-        # Set default values for mapped rows
+        match = sub_prac_df[
+            (sub_prac_df['address_1'] == loc_row['Address line 1'])
+        ]
+        if not match.empty:
+            best_row = match.iloc[0]
+        else:
+            best_row = try_fuzzy_with_address2(sub_prac_df, loc_row, 'address_2', addr2)
+    if best_row is None:
+        # FINAL fallback: fuzzy match on address_1 only across all practice locations
+        all_choices = prac_df['address_1'].tolist()
+        best_address = process.extractOne(loc_row['Address line 1'], all_choices, scorer=fuzz.token_sort_ratio)
+        if best_address:
+            best_row = prac_df[prac_df['address_1'] == best_address[0]].iloc[0]
+    if best_row is not None:
+        loc_df.at[idx, 'Practice Cloud ID'] = str(best_row.get('Practice Cloud ID', ''))
+        loc_df.at[idx, 'Location Cloud ID'] = str(best_row.get('location_id', ''))
+        loc_df.at[idx, 'Scheduling Software'] = str(best_row.get('software', ''))
+        loc_df.at[idx, 'Scheduling Software ID'] = str(best_row.get('software_id', ''))
+        loc_df.at[idx, 'Phone'] = str(best_row.get('phone', ''))
+        loc_df.at[idx, 'Virtual Visit Type'] = str(best_row.get('virtual_visit_type', ''))
         loc_df.at[idx, 'Email for appointment notifications 1'] = 'practice.manager@zocdocusername.com'
         loc_df.at[idx, 'Practice Name'] = 'LifeStance Health'
         loc_df.at[idx, 'Location Name'] = 'LifeStance Health'
@@ -90,6 +134,49 @@ with pd.ExcelWriter(merged_file_path, engine='openpyxl', mode='a', if_sheet_exis
     loc_df.to_excel(writer, sheet_name='Location', index=False)
 
 print("Updated Location sheet in Mergedoutput.xlsx using Practice-Location.xlsx.")
+
+# --- NEW: Re-map columns 'Location ID 1' through 'Location ID 5' in the Provider sheet from updated Location sheet ---
+wb = openpyxl.load_workbook(merged_file_path)
+ws_provider = wb['Provider']
+ws_location = wb['Location']
+
+prov_header = [cell.value for cell in ws_provider[1]]
+loc_header = [cell.value for cell in ws_location[1]]
+
+location_cloud_id_idx = loc_header.index("Location Cloud ID") + 1
+complete_location_idx = loc_header.index("Complete Location") + 1 if "Complete Location" in loc_header else None
+
+for n in range(1, 6):
+    try:
+        col_idx = prov_header.index(f'Location ID {n}') + 1
+    except ValueError:
+        continue
+    for row in range(2, ws_provider.max_row + 1):
+        loc_id_val = ws_provider.cell(row=row, column=col_idx).value
+        if loc_id_val:
+            # Look up in Location sheet
+            found = False
+            for lrow in range(2, ws_location.max_row + 1):
+                if ws_location.cell(row=lrow, column=location_cloud_id_idx).value == loc_id_val:
+                    if complete_location_idx:
+                        provider_loc_col_name = f'Location {n}'
+                        try:
+                            provider_loc_col = prov_header.index(provider_loc_col_name) + 1
+                            ws_provider.cell(row=row, column=provider_loc_col, value=ws_location.cell(row=lrow, column=complete_location_idx).value)
+                        except ValueError:
+                            pass  # If the column doesn't exist, skip
+                    found = True
+                    break
+            if not found:
+                # Write blank if no match found
+                provider_loc_col_name = f'Location {n}'
+                try:
+                    provider_loc_col = prov_header.index(provider_loc_col_name) + 1
+                    ws_provider.cell(row=row, column=provider_loc_col, value="")
+                except ValueError:
+                    pass
+wb.save(merged_file_path)
+print("Re-mapped Location ID 1-5 columns in Provider sheet from updated Location sheet.")
 
 # Highlight unmatched rows in yellow (flexible matching for address_2)
 wb_loc = openpyxl.load_workbook(merged_file_path)
@@ -530,20 +617,194 @@ except ValueError:
     print("'ZIP Code' column not found in Location sheet, skipping ZIP correction.")
 
 # --- Delete specified columns from Provider sheet ---
-wb = openpyxl.load_workbook(merged_file_path)
-ws = wb['Provider']
-header = [cell.value for cell in ws[1]]
-columns_to_delete = [
-    'Facility Address', 'Facility City', 'Facility Zip', 'Facility State', 'Address line 2', 'Matched'
-]
-# Find column indices (1-based, right to left to avoid shifting)
-col_indices = [header.index(col) + 1 for col in columns_to_delete if col in header]
-for col_idx in sorted(col_indices, reverse=True):
-    ws.delete_cols(col_idx)
-wb.save(merged_file_path)
-print("Deleted specified columns from Provider sheet in Mergedoutput.xlsx.")
+# Removed column deletion as requested.
+#wb = openpyxl.load_workbook(merged_file_path)
+#ws = wb['Provider']
+#header = [cell.value for cell in ws[1]]
+#columns_to_delete = [
+#    'Facility Address', 'Facility City', 'Facility Zip', 'Facility State', 'Address line 2', 'Matched'
+#]
+#for col in columns_to_delete:
+#    try:
+#        idx = header.index(col) + 1
+#        ws.delete_cols(idx)
+#        header.pop(idx-1)
+#    except ValueError:
+#        pass
+#wb.save(merged_file_path)
 
 # Now open the file in Excel (Windows only)
-os.startfile(merged_file_path)
+
+
+wb = openpyxl.load_workbook(merged_file_path)
+ws_provider = wb['Provider']
+ws_location = wb['Location']
+prov_header = [cell.value for cell in ws_provider[1]]
+loc_header = [cell.value for cell in ws_location[1]]
+
+loc_address_col = loc_header.index('Address line 1') + 1
+loc_type_col = loc_header.index('Location Type') + 1
+loc_cloud_id_col = loc_header.index('Location Cloud ID') + 1
+
+try:
+    provider_fac_addr_col = prov_header.index('Facility Address') + 1
+    provider_locid1_col = prov_header.index('Location ID 1') + 1
+    provider_locid2_col = prov_header.index('Location ID 2') + 1
+except ValueError:
+    provider_fac_addr_col = provider_locid1_col = provider_locid2_col = None
+
+if None not in (provider_locid1_col, provider_locid2_col):
+    for row in range(2, ws_provider.max_row + 1):
+        locid1 = ws_provider.cell(row=row, column=provider_locid1_col).value
+        if not locid1 or str(locid1).strip() == '':
+            facility_addr = ws_provider.cell(row=row, column=provider_fac_addr_col).value
+            loc_address_list = [ws_location.cell(row=lrow, column=loc_address_col).value for lrow in range(2, ws_location.max_row + 1)]
+            fuzzy_matches = process.extract(facility_addr, loc_address_list, scorer=fuzz.token_sort_ratio, score_cutoff=60)
+            best_inperson_id = None
+            best_virtual_id = None
+            for match_addr, score, lrow_offset in fuzzy_matches:
+                lrow = lrow_offset + 2
+                loc_type = ws_location.cell(row=lrow, column=loc_type_col).value
+                loc_cloud_id = ws_location.cell(row=lrow, column=loc_cloud_id_col).value
+                if loc_type == 'In Person' and not best_inperson_id:
+                    best_inperson_id = loc_cloud_id
+                if loc_type == 'Virtual' and not best_virtual_id:
+                    best_virtual_id = loc_cloud_id
+            if best_inperson_id:
+                ws_provider.cell(row=row, column=provider_locid1_col, value=best_inperson_id)
+            if best_virtual_id:
+                ws_provider.cell(row=row, column=provider_locid2_col, value=best_virtual_id)
+wb.save(merged_file_path)
+print("Filled missing Location ID 1/2 in Provider sheet using fuzzy Facility Address mapping to Location sheet.")
+
+wb = openpyxl.load_workbook(merged_file_path)
+ws_provider = wb['Provider']
+prov_header = [cell.value for cell in ws_provider[1]]
+try:
+    provider_locid1_col = prov_header.index('Location ID 1') + 1
+    provider_locid2_col = prov_header.index('Location ID 2') + 1
+except ValueError:
+    provider_locid1_col = provider_locid2_col = None
+
+if None not in (provider_locid1_col, provider_locid2_col):
+    for row in range(2, ws_provider.max_row + 1):
+        id1 = ws_provider.cell(row=row, column=provider_locid1_col).value
+        id2 = ws_provider.cell(row=row, column=provider_locid2_col).value
+        if (not id1 or str(id1).strip() == "") and id2 and str(id2).strip() != "":
+            ws_provider.cell(row=row, column=provider_locid1_col, value=id2)
+            ws_provider.cell(row=row, column=provider_locid2_col, value=None)
+wb.save(merged_file_path)
+print("Shifted Location ID 2 to Location ID 1 when Location ID 1 was missing.")
+
+# Highlight Professional Statement cells over 2000 chars or containing URLs
+wb = openpyxl.load_workbook(merged_file_path)
+ws_provider = wb['Provider']
+prov_header = [cell.value for cell in ws_provider[1]]
+try:
+    prof_stmt_col = prov_header.index('Professional Statement') + 1
+    yellow_fill = PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+    url_pattern = re.compile(r'https?://|www\\.')
+    for row in range(2, ws_provider.max_row + 1):
+        cell = ws_provider.cell(row=row, column=prof_stmt_col)
+        val = str(cell.value) if cell.value is not None else ''
+        if len(val) > 2000 or url_pattern.search(val):
+            cell.fill = yellow_fill
+    wb.save(merged_file_path)
+    print("Highlighted 'Professional Statement' cells >2000 chars or containing URLs in Provider sheet.")
+except ValueError:
+    print("'Professional Statement' column not found, skipping highlighting step.")
+
+wb = openpyxl.load_workbook(merged_file_path)
+ws_provider = wb['Provider']
+ws_location = wb['Location']
+prov_header = [cell.value for cell in ws_provider[1]]
+loc_header = [cell.value for cell in ws_location[1]]
+
+try:
+    provider_locid1_col = prov_header.index('Location ID 1') + 1
+    provider_practice_name_col = prov_header.index('Practice Name') + 1
+    loc_cloud_id_col = loc_header.index('Location Cloud ID') + 1
+    loc_practice_name_col = loc_header.index('Practice Name') + 1
+except ValueError:
+    provider_locid1_col = provider_practice_name_col = loc_cloud_id_col = loc_practice_name_col = None
+
+if None not in (provider_locid1_col, provider_practice_name_col, loc_cloud_id_col, loc_practice_name_col):
+    for row in range(2, ws_provider.max_row + 1):
+        locid1 = ws_provider.cell(row=row, column=provider_locid1_col).value
+        if locid1 and str(locid1).strip() != '':
+            for lrow in range(2, ws_location.max_row + 1):
+                loc_cloud_id = ws_location.cell(row=lrow, column=loc_cloud_id_col).value
+                if locid1 == loc_cloud_id:
+                    practice_name = ws_location.cell(row=lrow, column=loc_practice_name_col).value
+                    ws_provider.cell(row=row, column=provider_practice_name_col, value=practice_name)
+                    break
+wb.save(merged_file_path)
+print("Brought 'Practice Name' from Location sheet to Provider sheet after Location ID mapping.")
+
+# --- FILLING 'Practice Cloud ID' in the Provider sheet from Location sheet ---
+wb = openpyxl.load_workbook(merged_file_path)
+ws_provider = wb['Provider']
+ws_location = wb['Location']
+prov_header = [cell.value for cell in ws_provider[1]]
+loc_header = [cell.value for cell in ws_location[1]]
+try:
+    provider_locid1_col = prov_header.index('Location ID 1') + 1
+    provider_practice_cloud_id_col = prov_header.index('Practice Cloud ID') + 1
+    loc_cloud_id_col = loc_header.index('Location Cloud ID') + 1
+    loc_practice_cloud_id_col = loc_header.index('Practice Cloud ID') + 1
+except ValueError:
+    provider_locid1_col = provider_practice_cloud_id_col = loc_cloud_id_col = loc_practice_cloud_id_col = None
+
+if None not in (provider_locid1_col, provider_practice_cloud_id_col, loc_cloud_id_col, loc_practice_cloud_id_col):
+    for row in range(2, ws_provider.max_row + 1):
+        locid1 = ws_provider.cell(row=row, column=provider_locid1_col).value
+        cloud_id = ''
+        if locid1 and str(locid1).strip() != '':
+            for lrow in range(2, ws_location.max_row + 1):
+                loc_cloud_id = ws_location.cell(row=lrow, column=loc_cloud_id_col).value
+                if locid1 == loc_cloud_id:
+                    cloud_id = ws_location.cell(row=lrow, column=loc_practice_cloud_id_col).value
+                    break
+        ws_provider.cell(row=row, column=provider_practice_cloud_id_col, value=cloud_id)
+    wb.save(merged_file_path)
+    print("Filled 'Practice Cloud ID' in Provider sheet from Location sheet.")
+
+
+def highlight_duplicate_npi(merged_file_path):
+    """
+    Highlights duplicate entries in the 'NPI Number' column of the Provider sheet in blue (#9BD7FF).
+    """
+    from openpyxl.styles import PatternFill
+    wb = openpyxl.load_workbook(merged_file_path)
+    ws = wb["Provider"]
+    header = [cell.value for cell in ws[1]]
+    try:
+        npi_col = header.index("NPI Number") + 1
+    except ValueError:
+        print("'NPI Number' column not found in Provider sheet for duplicate highlighting.")
+        return
+    npi_count = {}
+    # Count each NPI
+    for row in range(2, ws.max_row + 1):
+        npi = ws.cell(row=row, column=npi_col).value
+        if npi is not None and str(npi).strip() != "":
+            npi_count[npi] = npi_count.get(npi, 0) + 1
+    # Blue fill for duplicates
+    blue_fill = PatternFill(start_color='9BD7FF', end_color='9BD7FF', fill_type='solid')
+    for row in range(2, ws.max_row + 1):
+        npi = ws.cell(row=row, column=npi_col).value
+        if npi is not None and npi_count.get(npi, 0) > 1:
+            ws.cell(row=row, column=npi_col).fill = blue_fill
+    wb.save(merged_file_path)
+    print("Highlighted duplicate NPI Numbers in Provider sheet with #9BD7FF.")
+
+# === Call highlight_duplicate_npi after all Provider sheet operations, before final print/statements ===
+highlight_duplicate_npi(merged_file_path)
+
+
+
+print("Running Location_2.py for post-processing...")
+subprocess.run(["python", "Location_2.py"], check=True)
+print("Location_2.py completed.")
 
 

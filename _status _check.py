@@ -2,10 +2,14 @@ import openpyxl
 import os
 import re
 
+def resource_path(relative):
+    base = os.path.dirname(__file__)
+    return os.path.join(base, relative)
+
 # Path to the output file
-output_file = r"C:\Users\dhruv.bhattacharjee\Desktop\PDO Data Transposition\Scope Conversion_Lifestance\Excel Files\Output.xlsx"
+output_file = resource_path("Excel Files/Output.xlsx")
 # Path to the input file
-input_file = r"Excel Files/Input.xlsx"
+input_file = resource_path("Excel Files/Input.xlsx")
 
 # Load the output workbook and select the Provider sheet
 wb = openpyxl.load_workbook(output_file)

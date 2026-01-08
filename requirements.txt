@@ -1,1 +1,11 @@
-openpyxl 
+fuzzywuzzy
+numpy
+openpyxl
+pandas
+PyQt5
+python-docx
+python-Levenshtein
+rapidfuzz
+requests
+snowflake-connector-python
+yaspin 

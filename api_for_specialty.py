@@ -5,6 +5,10 @@ import numpy as np
 import json
 from yaspin import yaspin
 from yaspin.spinners import Spinners
+import sys
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
 # Path to the Excel file with NPI list
 excel_path = r"Excel Files/Npi-specialty.xlsx"
@@ -16,14 +20,19 @@ total_npis = len(npi_list)
 filled_count = 0
 not_found_count = 0
 
+# Read user and role from credentials.json instead of hardcoding
+with open("credentials.json", "r") as cred_file:
+    credentials = json.load(cred_file)
+    SNOWFLAKE_USER = credentials["user"]
+    SNOWFLAKE_ROLE = credentials["role"]
 # Connect to Snowflake using SSO (external browser authentication)
 conn = snowflake.connector.connect(
-    user="dhruv.bhattacharjee@zocdoc.com",
+    user=SNOWFLAKE_USER,
     account="OLIKNSY-ZOCDOC_001",
     warehouse="USER_QUERY_WH",
     database='CISTERN',
     schema='PROVIDER_PREFILL',  # updated schema
-    role="PROD_OPS_PUNE_ROLE",
+    role=SNOWFLAKE_ROLE,
     authenticator='externalbrowser'
 )
 
@@ -84,7 +93,7 @@ try:
             status = (f"Total Provider's NPIs in the Batch: {total_npis} | "
                       f"NPIs filled: {filled_count} | NPIs not found: {not_found_count}")
             spinner.text = f"{status} (Processing NPI {idx}/{total_npis})"
-        spinner.ok("✔")
+        spinner.ok("OK")
 finally:
     cs.close()
     conn.close()
